@@ -1,14 +1,22 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { UploadFileServiceS3 } from '@common/services/file.service';
 import { UploadImageDto, UploadImageResponseDto } from './dtos/upload-image.dto';
-import { CreateMultipleProductsDto, CreateProductDto } from './dtos/create-product.body.dto';
+import { CreateProductDto } from './dtos/create-product.body.dto';
 import PrismaService from '@common/services/prisma.service';
 import { User } from '@prisma/client';
 import { CreateMultipleProductsResponseDto, CreateProductResponseDto } from './dtos/create-product.response.dto';
+import { GetProductResponseDto } from './dtos/get-product.response.dto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly uploadFileService: UploadFileServiceS3, private prisma: PrismaService) {}
+  constructor(
+    private readonly uploadFileService: UploadFileServiceS3,
+    private prisma: PrismaService,
+  ) {}
 
   async uploadProductImage(
     file: Express.Multer.File,
@@ -105,6 +113,61 @@ export class ProductsService {
       products: createdProducts,
       count: createdProducts.length,
       message: 'Products created successfully',
+    };
+  }
+
+  async getProductById(productId: string): Promise<GetProductResponseDto> {
+    const product = await this.prisma.product.findUnique({
+      where: { productId },
+      select: {
+        productId: true,
+        name: true,
+        description: true,
+        stockQuantity: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        images: {
+          select: { imageId: true, imageUrl: true, isPrimary: true },
+          orderBy: { isPrimary: 'desc' },
+        },
+        seller: {
+          select: {
+            userId: true,
+            profile: { select: { fullName: true } },
+          },
+        },
+        productCategories: {
+          select: { category: { select: { categoryId: true, name: true } } },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return {
+      productId: product.productId,
+      name: product.name,
+      description: product.description || undefined,
+      status: product.status,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+      images: product.images.map((image) => ({
+        imageId: image.imageId,
+        imageUrl: image.imageUrl,
+        isPrimary: image.isPrimary,
+      })),
+      stockQuantity: product.stockQuantity,
+      seller: {
+        userId: product.seller.userId,
+        fullName: product.seller.profile?.fullName || undefined,
+      },
+      categories: product.productCategories.map((pc) => ({
+        categoryId: pc.category.categoryId,
+        name: pc.category.name,
+      })),
     };
   }
 }
